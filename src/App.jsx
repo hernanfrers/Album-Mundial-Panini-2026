@@ -52,6 +52,60 @@ const GROUP_COLORS = {
   I: "#e9c46a", J: "#264653", K: "#6d6875", L: "#b5838d",
 };
 
+function Auth() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [isRegister, setIsRegister] = useState(false);
+  const [authError, setAuthError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleAuth = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setAuthError("");
+    const { error } = isRegister
+      ? await supabase.auth.signUp({ email, password })
+      : await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      setAuthError(error.message);
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#0a0a1a", display: "flex", alignItems: "center", justifyContent: "center", color: "#f0e6d3", fontFamily: "Georgia, serif" }}>
+      <div style={{ background: "rgba(255,255,255,0.1)", padding: "40px", borderRadius: "12px", width: "300px", textAlign: "center" }}>
+        <h2 style={{ marginBottom: "20px", color: "#ffd700" }}>{isRegister ? "Registrarse" : "Iniciar Sesión"}</h2>
+        <form onSubmit={handleAuth}>
+          <input
+            type="email"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            style={{ width: "100%", padding: "10px", marginBottom: "10px", borderRadius: "6px", border: "none" }}
+          />
+          <input
+            type="password"
+            placeholder="Contraseña"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            style={{ width: "100%", padding: "10px", marginBottom: "10px", borderRadius: "6px", border: "none" }}
+          />
+          {authError && <p style={{ color: "red", marginBottom: "10px" }}>{authError}</p>}
+          <button type="submit" disabled={loading} style={{ width: "100%", padding: "10px", background: "#ffd700", color: "#1a1a00", border: "none", borderRadius: "6px", cursor: "pointer" }}>
+            {loading ? "Cargando..." : isRegister ? "Registrarse" : "Iniciar Sesión"}
+          </button>
+        </form>
+        <button onClick={() => setIsRegister(!isRegister)} style={{ marginTop: "10px", background: "none", color: "#ffd700", border: "none", cursor: "pointer" }}>
+          {isRegister ? "¿Ya tienes cuenta? Inicia sesión" : "¿No tienes cuenta? Regístrate"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function PaniniTracker() {
   const [collected, setCollected] = useState(initialState);
   const [expandedTeams, setExpandedTeams] = useState({});
@@ -59,10 +113,12 @@ export default function PaniniTracker() {
   const [showOnlyMissing, setShowOnlyMissing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
 
   useEffect(() => {
     const loadData = async () => {
-      const { data, error } = await supabase.from("Figuritas").select("*");
+      const { data, error } = await supabase.from("Figuritas").select("*").eq("user_id", user.id);
       if (error) { console.error(error); setLoading(false); return; }
       if (data && data.length > 0) {
         const newState = initialState();
@@ -73,14 +129,22 @@ export default function PaniniTracker() {
       }
       setLoading(false);
     };
-    loadData();
+    if (user) loadData();
+  }, [user]);
+
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      setUser(session?.user ?? null);
+      setAuthLoading(false);
+    });
+    return () => subscription.unsubscribe();
   }, []);
 
   const saveToSupabase = async (team, stickers) => {
     setSaving(true);
     await supabase.from("Figuritas").upsert(
-      { team, stickers: JSON.stringify(stickers) },
-      { onConflict: "team" }
+      { team, stickers: JSON.stringify(stickers), user_id: user.id },
+      { onConflict: ["team", "user_id"] }
     );
     setSaving(false);
   };
@@ -146,6 +210,14 @@ export default function PaniniTracker() {
     }
   };
 
+  if (authLoading) return (
+    <div style={{ minHeight: "100vh", background: "#0a0a1a", display: "flex", alignItems: "center", justifyContent: "center", color: "#ffd700", fontFamily: "Georgia, serif", fontSize: 20 }}>
+      Cargando autenticación...
+    </div>
+  );
+
+  if (!user) return <Auth />;
+
   if (loading) return (
     <div style={{ minHeight: "100vh", background: "#0a0a1a", display: "flex", alignItems: "center", justifyContent: "center", color: "#ffd700", fontFamily: "Georgia, serif", fontSize: 20 }}>
       Cargando tu álbum... 🏆
@@ -172,6 +244,9 @@ export default function PaniniTracker() {
       `}</style>
 
       <div style={{ background:"linear-gradient(180deg,#0a0a2e 0%,#1a1050 100%)", borderBottom:"3px solid #ffd700", padding:"28px 20px 24px", textAlign:"center", position:"relative" }}>
+        <div style={{ position:"absolute", top:10, left:16 }}>
+          <button onClick={() => supabase.auth.signOut()} style={{ padding:"5px 12px", borderRadius:20, border:"1px solid rgba(255,255,255,0.3)", background:"transparent", color:"rgba(255,255,255,0.7)", cursor:"pointer", fontFamily:"'Lato',sans-serif", fontSize:12 }}>Cerrar Sesión</button>
+        </div>
         {saving && <div style={{ position:"absolute", top:10, right:16, fontSize:11, color:"#ffd700", fontFamily:"'Lato',sans-serif" }}>💾 Guardando...</div>}
         <div style={{ fontSize:13, color:"#ffd700", letterSpacing:4, fontFamily:"'Lato',sans-serif", fontWeight:700, marginBottom:6, textTransform:"uppercase" }}>🏆 Copa Mundial de la FIFA™</div>
         <div style={{ fontFamily:"'Oswald',serif", fontSize:"clamp(28px,7vw,52px)", fontWeight:700, letterSpacing:2, lineHeight:1 }}>PANINI 2026</div>
